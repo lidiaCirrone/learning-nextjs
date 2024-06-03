@@ -7,21 +7,56 @@ import { redirect } from 'next/navigation';
 
 const FormSchema = z.object({
   id: z.string(),
-  customerId: z.string(),
-  amount: z.coerce.number(),
-  status: z.enum(['pending', 'paid']),
+  customerId: z.string({
+    invalid_type_error: 'Please select a customer.',
+  }),
+  //  Since you are coercing the amount type from string to number,
+  //  it'll default to zero if the string is empty. Let's tell Zod
+  //  we always want the amount greater than 0 with the .gt() function.
+  amount: z.coerce
+    .number()
+    .gt(0, { message: 'Please enter an amount greater than $0.' }),
+  //  Zod already throws an error if the status field is empty
+  //  as it expects "pending" or "paid". Let's also add
+  //  a friendly message if the user doesn't select a status.
+  status: z.enum(['pending', 'paid'], {
+    invalid_type_error: 'Please select an invoice status.',
+  }),
   date: z.string(),
 });
 
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
 const UpdateInvoice = FormSchema.omit({ id: true, date: true });
 
-export async function createInvoice(formData: FormData) {
-  const { customerId, amount, status } = CreateInvoice.parse({
+export type State = {
+  errors?: {
+    customerId?: string[];
+    amount?: string[];
+    status?: string[];
+  };
+  message?: string | null;
+};
+
+// `prevState` contains the state passed from the useFormState hook.
+// You won't be using it in the action in this example, but it's a required prop.
+export async function createInvoice(prevState: State, formData: FormData) {
+  // Validate form using Zod
+  const validatedFields = CreateInvoice.safeParse({
     customerId: formData.get('customerId'),
     amount: formData.get('amount'),
     status: formData.get('status'),
   });
+
+  // If form validation fails, return errors early. Otherwise, continue.
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: 'Missing Fields. Failed to Create Invoice.',
+    };
+  }
+
+  // Prepare data for insertion into the database
+  const { customerId, amount, status } = validatedFields.data;
   const amountInCents = amount * 100;
   const date = new Date().toISOString().split('T')[0];
 
@@ -38,12 +73,12 @@ export async function createInvoice(formData: FormData) {
 
   revalidatePath('/dashboard/invoices');
 
-  /* 
-  * Note how redirect is being called outside of the try/catch block. 
-  * This is because redirect works by throwing an error, which 
-  * would be caught by the catch block. To avoid this, you can call redirect 
-  * after try/catch. redirect would only be reachable if try is successful. 
-  */
+  /*
+   * Note how redirect is being called outside of the try/catch block.
+   * This is because redirect works by throwing an error, which
+   * would be caught by the catch block. To avoid this, you can call redirect
+   * after try/catch. redirect would only be reachable if try is successful.
+   */
   redirect('/dashboard/invoices');
 }
 
